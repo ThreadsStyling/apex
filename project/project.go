@@ -71,6 +71,7 @@ type Project struct {
 	Functions        []*function.Function
 	IgnoreFile       []byte
 	nameTemplate     *template.Template
+	ConfigFile       string
 }
 
 // defaults applies configuration defaults.
@@ -94,24 +95,37 @@ func (p *Project) defaults() {
 	if p.RetainedVersions == nil {
 		p.RetainedVersions = aws.Int(DefaultRetainedVersions)
 	}
+
+	if len(p.Environment) == 0 {
+		p.ConfigFile = "project.json"
+	} else {
+		p.ConfigFile = fmt.Sprintf("project.%s.json", p.Environment)
+	}
 }
 
 // Open the project.json file and prime the config.
 func (p *Project) Open() error {
 	p.defaults()
 
-	configFile := "project.json"
-	if p.Environment != "" {
-		configFile = fmt.Sprintf("project.%s.json", p.Environment)
-	}
-
-	f, err := os.Open(filepath.Join(p.Path, configFile))
+	f, err := os.Open(filepath.Join(p.Path, "project.json"))
 	if err != nil {
 		return err
 	}
 
 	if err := json.NewDecoder(f).Decode(&p.Config); err != nil {
 		return err
+	}
+
+	_, err = os.Stat("project.json")
+	if err == nil {
+		f, err = os.Open(filepath.Join(p.Path, p.ConfigFile))
+		if err != nil {
+			return err
+		}
+
+		if err := json.NewDecoder(f).Decode(&p.Config); err != nil {
+			return err
+		}
 	}
 
 	if p.InfraEnvironment == "" {
