@@ -13,10 +13,13 @@ import (
 	"github.com/apex/apex/dryrun"
 	"github.com/apex/apex/project"
 	"github.com/apex/apex/utils"
+	"fmt"
 )
 
 // environment for project.
 var environment string
+
+var configFile string
 
 // chdir working directory.
 var chdir string
@@ -141,6 +144,13 @@ func Prepare(c *cobra.Command, args []string) error {
 		environment = os.Getenv("APEX_ENVIRONMENT")
 	}
 
+	if environment == "" {
+		configFile = "project.json"
+	} else {
+		configFile = fmt.Sprintf("project.%s.json", environment)
+	}
+
+
 	// iamrole from flag, env
 	if iamrole == "" {
 		iamrole = os.Getenv("AWS_ROLE")
@@ -161,6 +171,7 @@ func Prepare(c *cobra.Command, args []string) error {
 		InfraEnvironment: environment,
 		Log:              log.Log,
 		Path:             ".",
+		ConfigFile:		  configFile,
 	}
 
 	if dryRun {

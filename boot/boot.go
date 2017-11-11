@@ -3,6 +3,7 @@ package boot
 import (
 	"fmt"
 	"io/ioutil"
+	"encoding/json"
 	"os"
 	"strings"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/tj/go-prompt"
 
 	"github.com/apex/apex/boot/boilerplate"
+	"github.com/apex/apex/cmd/apex/root"
+	"path/filepath"
 )
 
 // TODO(tj): attempt creation of S3 bucket to streamline that as well
@@ -33,6 +36,18 @@ var projectConfig = `{
   "description": "%s",
   "memory": 128,
   "timeout": 5,
+  "role": "%s",
+  "environment": {}
+}`
+
+var projectBasicConfig = `{
+  "name": "%s",
+  "description": "%s",
+  "memory": 128,
+  "timeout": 5
+}`
+
+var projectEnvConfig = `{
   "role": "%s",
   "environment": {}
 }`
@@ -73,25 +88,50 @@ var iamLogsPolicy = `{
 type Bootstrapper struct {
 	IAM    iamiface.IAMAPI
 	Region string
-
-	name        string
-	description string
+	Environment string
+	Name        string
+	Description string
+	SkipSkeleton bool
 }
 
 // Boot the project.
-func (b *Bootstrapper) Boot() error {
+func (b *Bootstrapper) Boot(noPrompt bool) error {
 	fmt.Println(logo)
 
 	if b.isProject() {
-		help("I've detected a ./project.json file, this seems to already be a project!")
+		help(fmt.Sprintf("I've detected a %s file, it looks like project has been initialised for that env!", root.Project.ConfigFile))
 		return nil
 	}
 
-	help("Enter the name of your project. It should be machine-friendly, as this\nis used to prefix your functions in Lambda.")
-	b.name = prompt.StringRequired(indent("  Project name: "))
+	if len(root.Project.Environment) == 0 {
+		if noPrompt && len(b.Name) == 0 {
+			help("You need to provide at least value for --name in quiet mode")
+			return nil
+		}
 
-	help("Enter an optional description of your project.")
-	b.description = prompt.String(indent("  Project description: "))
+		if !noPrompt {
+			if len(b.Name) == 0 {
+				help("Enter the name of your project. It should be machine-friendly, as this\nis used to prefix your functions in Lambda.")
+				b.Name = prompt.StringRequired(indent("  Project name: "))
+			}
+
+			if len(b.Description) == 0 {
+				help("Enter an optional description of your project.")
+				b.Description = prompt.String(indent("  Project description: "))
+			}
+		}
+	} else {
+		f, err := os.Open("project.json")
+		if err != nil {
+			return err
+		}
+
+		if err := json.NewDecoder(f).Decode(&root.Project.Config); err != nil {
+			return err
+		}
+		b.Name = root.Project.Name
+		b.Description = root.Project.Description
+	}
 
 	fmt.Println()
 	return b.bootVanilla()
@@ -99,7 +139,7 @@ func (b *Bootstrapper) Boot() error {
 
 // check if there's a project.
 func (b *Bootstrapper) isProject() bool {
-	_, err := os.Stat("project.json")
+	_, err := os.Stat(root.Project.ConfigFile)
 	return err == nil
 }
 
@@ -120,8 +160,8 @@ func (b *Bootstrapper) bootVanilla() error {
 
 // Create IAM role, returning the ARN.
 func (b *Bootstrapper) createRole() (string, error) {
-	roleName := fmt.Sprintf("%s_lambda_function", b.name)
-	policyName := fmt.Sprintf("%s_lambda_logs", b.name)
+	roleName := fmt.Sprintf("%s_lambda_function", b.Name)
+	policyName := fmt.Sprintf("%s_lambda_logs", b.Name)
 
 	logf("creating IAM %s role", roleName)
 	role, err := b.IAM.CreateRole(&iam.CreateRoleInput{
@@ -159,16 +199,44 @@ func (b *Bootstrapper) createRole() (string, error) {
 
 // Initialize project files such as project.json and ./functions.
 func (b *Bootstrapper) initProjectFiles(iamRole string) error {
-	logf("creating ./project.json")
+	logf(fmt.Sprintf("creating ./%s", root.Project.ConfigFile))
 
-	project := fmt.Sprintf(projectConfig, b.name, b.description, iamRole)
+	if len(root.Project.Environment) == 0 {
+		config := fmt.Sprintf(projectConfig, b.Name, b.Description, iamRole)
 
-	if err := ioutil.WriteFile("project.json", []byte(project), 0644); err != nil {
-		return err
+		if err := ioutil.WriteFile(root.Project.ConfigFile, []byte(config), 0644); err != nil {
+			return err
+		}
+	} else {
+		_, err := os.Stat("project.json")
+
+		if err != nil {
+			config := fmt.Sprintf(projectBasicConfig, b.Name, b.Description)
+
+			if err := ioutil.WriteFile("project.json", []byte(config), 0644); err != nil {
+				return err
+			}
+		}
+
+		config := fmt.Sprintf(projectEnvConfig, iamRole)
+
+		if err := ioutil.WriteFile(root.Project.ConfigFile, []byte(config), 0644); err != nil {
+			return err
+		}
 	}
 
+
 	logf("creating ./functions")
-	return boilerplate.RestoreAssets(".", "functions")
+	if b.SkipSkeleton {
+		err := os.MkdirAll(filepath.Join(".", "functions"), os.FileMode(0755))
+		if err != nil {
+			return err
+		}
+	} else {
+		return boilerplate.RestoreAssets(".", "functions")
+	}
+
+	return nil
 }
 
 // help string output.

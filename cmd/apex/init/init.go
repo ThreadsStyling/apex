@@ -24,6 +24,11 @@ var credentialsError = `
 
 `
 
+var name string
+var description string
+var noPrompt bool
+var skipSkeleton bool
+
 // Command config.
 var Command = &cobra.Command{
 	Use:              "init",
@@ -35,6 +40,13 @@ var Command = &cobra.Command{
 // Initialize.
 func init() {
 	root.Register(Command)
+
+	f := Command.PersistentFlags()
+
+	f.StringVarP(&name, "name", "n", "", "Project name")
+	f.StringVarP(&description, "description", "d", "", "Project description")
+	f.BoolVarP(&noPrompt, "no-prompt", "q", false, "Non interactive mode")
+	f.BoolVarP(&skipSkeleton, "skip-skeleton", "s", false, "Dont't create hello function")
 }
 
 // Run command.
@@ -51,7 +63,10 @@ func run(c *cobra.Command, args []string) error {
 	b := boot.Bootstrapper{
 		IAM:    iam.New(root.Session),
 		Region: *region,
+		Name: name,
+		Description: description,
+		SkipSkeleton: skipSkeleton,
 	}
 
-	return b.Boot()
+	return b.Boot(noPrompt)
 }
