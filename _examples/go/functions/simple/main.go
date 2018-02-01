@@ -1,23 +1,20 @@
 package main
 
 import (
-	"encoding/json"
+	"fmt"
 
-	"github.com/apex/go-apex"
+	"github.com/aws/aws-lambda-go/lambda"
 )
 
-type message struct {
-	Hello string `json:"hello"`
+type input struct {
+	Name    string
+	Species string
+}
+
+func greet(in *input) (string, error) {
+	return fmt.Sprintf("Hello %s, you are a %s", in.Name, in.Species), nil
 }
 
 func main() {
-	apex.HandleFunc(func(event json.RawMessage, ctx *apex.Context) (interface{}, error) {
-		var m message
-
-		if err := json.Unmarshal(event, &m); err != nil {
-			return nil, err
-		}
-
-		return m, nil
-	})
+	lambda.Start(greet)
 }
